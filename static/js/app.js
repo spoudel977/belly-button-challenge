@@ -1,157 +1,140 @@
-// app.js — Belly Button Biodiversity (clean, robust, responsive)
+// app.js — Belly Button Biodiversity (clean aesthetic)
 
-const DATA_URL = "./samples.json"; // local file in repo root
+const DATA_URL = "./samples.json";
 
-// ---- Plotly config & theme ----
+// Plotly config & theme tuned for light, airy look
 const PLOT_CONFIG = { responsive: true, displayModeBar: false };
 const THEME = {
-  font: {
-    family: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
-    size: 12,
-    color: "#2d2d2d"
-  },
+  font: { family: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", size: 12, color: "#2d2d2d" },
   paper_bgcolor: "rgba(0,0,0,0)",
-  plot_bgcolor: "#ffffff"
+  plot_bgcolor: "#ffffff",
+  hoverlabel: { bgcolor: "#fff", bordercolor: "#e9ecef", font: { size: 11 } }
 };
 
 let DATA = null;
 
-// ---- helpers ----
-function byId(id) { return document.getElementById(id); }
-function prettyKey(k) {
-  const map = {
-    id: "ID", ethnicity: "Ethnicity", gender: "Gender", age: "Age",
-    location: "Location", bbtype: "BB Type", wfreq: "Wash Freq (wk)"
-  };
-  return map[k] || k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-}
+const byId = (id) => document.getElementById(id);
+const prettyKey = (k) => ({
+  id:"ID", ethnicity:"Ethnicity", gender:"Gender", age:"Age",
+  location:"Location", bbtype:"BB Type", wfreq:"Wash Freq (wk)",
+}[k] || k.replace(/_/g," ").replace(/\b\w/g,(c)=>c.toUpperCase()));
 
-// ---- renderers ----
+// Metadata table
 function renderMetadata(meta) {
   const panel = d3.select("#sample-metadata");
   if (panel.empty()) return;
   panel.html("");
 
-  const table = panel.append("table").attr("class", "table table-sm mb-0");
+  const table = panel.append("table").attr("class","table table-sm mb-0");
   const tbody = table.append("tbody");
-
   Object.entries(meta).forEach(([k, v]) => {
-    const row = tbody.append("tr");
-    row.append("th").attr("scope", "row").style("width", "45%").text(prettyKey(k));
-    row.append("td").text(v === null || v === undefined ? "—" : v);
+    const tr = tbody.append("tr");
+    tr.append("th").attr("scope","row").style("width","52%").text(prettyKey(k));
+    tr.append("td").text(v ?? "—");
   });
 }
 
+// Bar: compact margins, subtle grid, wider label gutter
 function renderBar(sample) {
-  const el = byId("bar");
-  if (!el) return;
+  const el = byId("bar"); if (!el) return;
+  const vals = sample.sample_values || [];
+  const ids  = sample.otu_ids || [];
+  const lbls = sample.otu_labels || [];
+  const n = Math.min(vals.length, ids.length, lbls.length);
 
-  const values = sample.sample_values || [];
-  const ids    = sample.otu_ids || [];
-  const labels = sample.otu_labels || [];
-  const minLen = Math.min(values.length, ids.length, labels.length);
-
-  const top10 = values.slice(0, minLen)
-    .map((val, i) => ({ val, id: ids[i], label: labels[i] }))
-    .sort((a, b) => b.val - a.val)
-    .slice(0, 10)
-    .reverse();
+  const top10 = vals.slice(0,n).map((v,i)=>({v,id:ids[i],t:lbls[i]}))
+    .sort((a,b)=>b.v-a.v).slice(0,10).reverse();
 
   const trace = {
-    x: top10.map(d => d.val),
-    y: top10.map(d => `OTU ${d.id}`),
-    text: top10.map(d => d.label),
+    x: top10.map(d=>d.v),
+    y: top10.map(d=>`OTU ${d.id}`),
+    text: top10.map(d=>d.t),
     type: "bar",
     orientation: "h",
-    marker: { color: "#2266cc" },
+    marker: { color: "rgba(34,102,204,0.9)", line:{color:"rgba(34,102,204,0.4)", width:1} },
     hovertemplate: "%{y}<br>Value: %{x}<extra></extra>"
   };
 
   const layout = {
     ...THEME,
-    title: "",
-    margin: { t: 10, r: 10, b: 40, l: 70 },
-    xaxis: { title: "Sample Values", gridcolor: "#f0f0f0", zeroline: false, automargin: true },
-    yaxis: { title: "OTU IDs", gridcolor: "#ffffff", zeroline: false, automargin: true }
+    margin: { t: 8, r: 8, b: 34, l: 92 },
+    xaxis: { title: "Sample Values", gridcolor: "#f2f4f6", zeroline: false, automargin: true },
+    yaxis: { title: "OTU IDs",      gridcolor: "#ffffff", automargin: true },
+    bargap: 0.18
   };
 
   Plotly.react(el, [trace], layout, PLOT_CONFIG);
 }
 
+// Bubble: restrained colors, clear grid, readable sizes
 function renderBubble(sample) {
-  const el = byId("bubble");
-  if (!el) return;
-
+  const el = byId("bubble"); if (!el) return;
   const x = sample.otu_ids || [];
   const y = sample.sample_values || [];
   const t = sample.otu_labels || [];
 
-  const maxVal  = y.length ? Math.max(...y) : 0;
+  const maxVal = y.length ? Math.max(...y) : 0;
   const sizeref = maxVal ? maxVal / 70 : 1;
 
   const trace = {
     x, y, text: t, mode: "markers",
     marker: {
       size: y, sizemode: "area", sizeref,
-      color: x, colorscale: "Viridis", showscale: true, opacity: 0.85,
-      line: { width: 0.5, color: "rgba(0,0,0,0.15)" },
-      colorbar: { thickness: 12, outlinewidth: 0 }
+      color: x, colorscale: "Viridis", showscale: true, opacity: 0.9,
+      line: { width: 0.5, color: "rgba(0,0,0,0.12)" },
+      colorbar: { thickness: 10, outlinewidth: 0 }
     },
     hovertemplate: "OTU %{x}<br>Value: %{y}<extra></extra>"
   };
 
   const layout = {
     ...THEME,
-    title: "",
-    margin: { t: 10, r: 20, b: 50, l: 60 },
-    xaxis: { title: "OTU IDs", gridcolor: "#f0f0f0", zeroline: false, automargin: true },
-    yaxis: { title: "Sample Values", gridcolor: "#f0f0f0", zeroline: false, automargin: true }
+    margin: { t: 8, r: 28, b: 46, l: 60 },
+    xaxis: { title: "OTU IDs", gridcolor: "#f2f4f6", zeroline: false, automargin: true },
+    yaxis: { title: "Sample Values", gridcolor: "#f2f4f6", zeroline: false, automargin: true }
   };
 
   Plotly.react(el, [trace], layout, PLOT_CONFIG);
 }
 
+// Gauge: minimal, with soft step colors
 function renderGauge(wfreqRaw) {
-  const el = byId("gauge");
-  if (!el) return;
-
+  const el = byId("gauge"); if (!el) return;
   const wfreq = (typeof wfreqRaw === "number" && isFinite(wfreqRaw)) ? wfreqRaw : 0;
 
   const data = [{
     type: "indicator",
     mode: "gauge+number",
     value: wfreq,
-    number: { font: { size: 20 } },
+    number: { font: { size: 18 } },
     gauge: {
-      axis: { range: [0, 9], tickwidth: 1, tickcolor: "#708090" },
-      bar:  { color: "#2266cc" },
+      axis: { range: [0, 9], tickwidth: 1, tickcolor: "#9aa4b2" },
+      bar: { color: "#2266cc" },
       bgcolor: "#ffffff",
       borderwidth: 0,
       steps: [
-        { range: [0, 3], color: "#e8f5e9" },
-        { range: [3, 6], color: "#c8e6c9" },
-        { range: [6, 9], color: "#a5d6a7" }
+        { range: [0, 3], color: "#eaf6ee" },
+        { range: [3, 6], color: "#d9efdf" },
+        { range: [6, 9], color: "#c7e7d1" }
       ],
       threshold: { line: { color: "#d32f2f", width: 3 }, thickness: 0.75, value: wfreq }
     },
     domain: { x: [0, 1], y: [0, 1] }
   }];
 
-  const layout = { ...THEME, title: "", margin: { t: 10, r: 10, b: 20, l: 10 } };
+  const layout = { ...THEME, margin: { t: 8, r: 8, b: 8, l: 8 } };
 
   Plotly.react(el, data, layout, PLOT_CONFIG);
 }
 
-// ---- main update ----
-function updateCharts(selectedId) {
+// Update all panels
+function updateCharts(subjectId) {
   if (!DATA) return;
-
   const samples = Array.isArray(DATA.samples) ? DATA.samples : [];
   const metas   = Array.isArray(DATA.metadata) ? DATA.metadata : [];
 
-  const sample   = samples.find(s => s.id === selectedId);
-  const metadata = metas.find(m => m.id === parseInt(selectedId, 10));
-
+  const sample   = samples.find(s => s.id === subjectId);
+  const metadata = metas.find(m => m.id === parseInt(subjectId, 10));
   if (!sample || !metadata) return;
 
   renderMetadata(metadata);
@@ -160,47 +143,43 @@ function updateCharts(selectedId) {
   renderGauge(metadata.wfreq);
 }
 
-// ---- init ----
+// Init
 (function init() {
-  // verify libs
   if (typeof d3 === "undefined" || typeof Plotly === "undefined") {
-    console.error("D3 or Plotly not loaded. Check script order.");
+    console.error("D3 or Plotly not loaded.");
     return;
   }
 
   d3.json(DATA_URL)
-    .then(response => {
-      DATA = response;
+    .then(resp => {
+      DATA = resp;
 
-      // dropdown
-      const dropdownSel = d3.select("#selDataset");
-      const names = Array.isArray(response.names) ? response.names : [];
-      names.forEach(id => dropdownSel.append("option").text(id).property("value", id));
+      // Dropdown
+      const sel = d3.select("#selDataset");
+      const names = Array.isArray(resp.names) ? resp.names : [];
+      names.forEach(id => sel.append("option").text(id).property("value", id));
 
       if (names.length) updateCharts(names[0]);
 
-      // change handler
-      dropdownSel.on("change", function () {
-        const val = dropdownSel.property("value");
-        updateCharts(val);
+      sel.on("change", function () {
+        updateCharts(sel.property("value"));
       });
 
-      // debounced resize
+      // Debounced resize
       let raf = null;
       window.addEventListener("resize", () => {
         if (raf) return;
         raf = requestAnimationFrame(() => {
-          ["bar", "bubble", "gauge"].forEach(id => {
+          ["bar","bubble","gauge"].forEach(id => {
             const el = byId(id);
-            if (el && Plotly && Plotly.Plots) Plotly.Plots.resize(el);
+            if (el && Plotly?.Plots) Plotly.Plots.resize(el);
           });
           raf = null;
         });
       });
     })
     .catch(err => {
-      console.error("Error loading samples.json:", err);
-      const panel = d3.select("#sample-metadata");
-      if (!panel.empty()) panel.html('<div class="text-danger">Failed to load data.</div>');
+      console.error("Failed to load samples.json:", err);
+      d3.select("#sample-metadata").html('<div class="text-danger">Failed to load data.</div>');
     });
 })();
