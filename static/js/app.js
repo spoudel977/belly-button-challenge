@@ -1,14 +1,22 @@
-// app.js — robust loader + clean 2×2 layout with post-render resize
+// app.js — robust loader + clean 2×2 layout with zoom & improved hovers
 
-const LOCAL_DATA = "./samples.json";
+const LOCAL_DATA   = "./samples.json";
 const FALLBACK_DATA = "https://static.bc-edx.com/data/dl-1-2/m14/lms/starter/samples.json";
 
-const PLOT_CONFIG = { responsive: true, displayModeBar: false };
+const PLOT_CONFIG = {
+  responsive: true,
+  displayModeBar: true,          // show toolbar
+  displaylogo: false,
+  modeBarButtonsToRemove: ["toImage","lasso2d","select2d"],
+  scrollZoom: true,               // wheel-zoom (great for bubble)
+  doubleClick: "reset"
+};
+
 const THEME = {
   font: { family: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", size: 12, color: "#2d2d2d" },
   paper_bgcolor: "rgba(0,0,0,0)",
   plot_bgcolor: "#ffffff",
-  hoverlabel: { bgcolor: "#fff", bordercolor: "#e9ecef", font: { size: 11 } }
+  hoverlabel: { bgcolor: "#fff", bordercolor: "#e9ecef", font: { size: 13 } }
 };
 
 let DATA = null;
@@ -23,7 +31,7 @@ function showDataError(msg) {
   if (!panel.empty()) panel.html(`<div class="text-danger">${msg}</div>`);
 }
 
-/* After each render, nudge Plotly to resize to the container height */
+/* After each render, nudge Plotly to fit containers */
 function resizeNow(ids = ["bar","bubble","gauge"]) {
   requestAnimationFrame(() => {
     ids.forEach(id => {
@@ -46,6 +54,7 @@ function renderMetadata(meta) {
   });
 }
 
+/* BAR — clean bars, hover only */
 function renderBar(sample) {
   const el = byId("bar"); if (!el) return;
   const vals = sample.sample_values || [];
@@ -59,59 +68,70 @@ function renderBar(sample) {
   const trace = {
     x: top10.map(d=>d.v),
     y: top10.map(d=>`OTU ${d.id}`),
-    text: top10.map(d=>d.t),
     type: "bar",
     orientation: "h",
     width: 0.55,
     marker: { color: "rgba(34,102,204,0.92)", line:{ color:"rgba(34,102,204,0.35)", width:1 } },
-    hovertemplate: "%{y}<br>Value: %{x}<extra></extra>"
+    hovertemplate:
+      "<b>%{y}</b><br>Value: %{x}<br>" +
+      "<span style='color:#6c757d'>%{customdata}</span>" +
+      "<extra></extra>",
+    customdata: top10.map(d => d.t)
   };
 
   const layout = {
     ...THEME,
-    title: "",
-    margin: { t: 6, r: 10, b: 30, l: 100 },
+    margin: { t: 6, r: 10, b: 30, l: 110 },
     xaxis: { title:"Sample Values", gridcolor:"#f2f4f6", zeroline:false, automargin:true },
     yaxis: { title:"OTU IDs",       gridcolor:"#ffffff", automargin:true },
     bargap: 0.28,
-    bargroupgap: 0.1
+    bargroupgap: 0.1,
+    hovermode: "closest",
+    dragmode: false                  // set "zoom" if you want zoom on bar too
   };
 
   Plotly.react(el, [trace], layout, PLOT_CONFIG);
   resizeNow(["bar"]);
 }
 
+/* BUBBLE — better hovers & zoom */
 function renderBubble(sample) {
   const el = byId("bubble"); if (!el) return;
   const x = sample.otu_ids || [];
   const y = sample.sample_values || [];
   const t = sample.otu_labels || [];
+
   const maxVal = y.length ? Math.max(...y) : 0;
-  const sizeref = maxVal ? maxVal / 70 : 1;
+  const sizeref = maxVal ? maxVal / 55 : 1; // slightly larger bubbles
 
   const trace = {
     x, y, text: t, mode: "markers",
     marker: {
       size: y, sizemode: "area", sizeref,
       color: x, colorscale: "Turbo", showscale: true, opacity: 0.9,
-      line: { width: 0.5, color: "rgba(0,0,0,0.12)" },
+      line: { width: 0.6, color: "rgba(0,0,0,0.18)" },
       colorbar: { thickness: 10, outlinewidth: 0 }
     },
-    hovertemplate: "OTU %{x}<br>Value: %{y}<extra></extra>"
+    hovertemplate:
+      "<b>OTU %{x}</b><br>Value: %{y}<br>" +
+      "<span style='color:#6c757d'>%{text}</span>" +
+      "<extra></extra>"
   };
 
   const layout = {
     ...THEME,
-    title: "",
     margin: { t: 6, r: 24, b: 36, l: 58 },
     xaxis: { title:"OTU IDs", gridcolor:"#f2f4f6", zeroline:false, automargin:true },
-    yaxis: { title:"Sample Values", gridcolor:"#f2f4f6", zeroline:false, automargin:true }
+    yaxis: { title:"Sample Values", gridcolor:"#f2f4f6", zeroline:false, automargin:true },
+    hovermode: "closest",
+    dragmode: "zoom"
   };
 
   Plotly.react(el, [trace], layout, PLOT_CONFIG);
   resizeNow(["bubble"]);
 }
 
+/* GAUGE */
 function renderGauge(wfreqRaw) {
   const el = byId("gauge"); if (!el) return;
   const wfreq = (typeof wfreqRaw === "number" && isFinite(wfreqRaw)) ? wfreqRaw : 0;
@@ -123,7 +143,7 @@ function renderGauge(wfreqRaw) {
     number: { font: { size: 18 } },
     gauge: {
       axis: { range: [0,9], tickwidth: 1, tickcolor: "#9aa4b2" },
-      bar: { color: "#00897b" },               // teal (distinct)
+      bar: { color: "#00897b" },
       bgcolor: "#ffffff",
       borderwidth: 0,
       steps: [
@@ -136,11 +156,12 @@ function renderGauge(wfreqRaw) {
     domain: { x:[0,1], y:[0,1] }
   }];
 
-  const layout = { ...THEME, margin: { t:6, r:10, b:6, l:10 }, title:"" };
+  const layout = { ...THEME, margin: { t:6, r:10, b:6, l:10 }, hovermode:"closest", title:"" };
   Plotly.react(el, data, layout, PLOT_CONFIG);
   resizeNow(["gauge"]);
 }
 
+/* Update all panels */
 function updateCharts(id) {
   if (!DATA) return;
   const s = (DATA.samples||[]).find(x=>x.id===id);
@@ -150,9 +171,10 @@ function updateCharts(id) {
   renderBar(s);
   renderBubble(s);
   renderGauge(m.wfreq);
-  resizeNow(); // final pass
+  resizeNow();
 }
 
+/* Data loader with local → fallback */
 async function loadDataWithFallback() {
   const urls = [LOCAL_DATA, FALLBACK_DATA];
   for (const url of urls) {
@@ -169,6 +191,7 @@ async function loadDataWithFallback() {
   return null;
 }
 
+/* Init */
 (async function init(){
   if (typeof d3 === "undefined" || typeof Plotly === "undefined") {
     console.error("D3 or Plotly not loaded. Check script order.");
@@ -182,7 +205,6 @@ async function loadDataWithFallback() {
     return;
   }
 
-  // Populate dropdown
   const sel = d3.select("#selDataset");
   const names = Array.isArray(DATA.names) ? DATA.names : [];
   names.forEach(id => sel.append("option").text(id).property("value", id));
