@@ -11,116 +11,117 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"
         integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
 
-  <!-- Page styles -->
   <style>
-    :root {
-      --bbd-bg: #f8f9fa;
+    :root { --bbd-bg: #f8f9fa; }
+    body { background: var(--bbd-bg); }
+
+    /* One-screen dashboard feel */
+    .dashboard {
+      min-height: 90vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 1rem;
     }
-    body {
-      background: var(--bbd-bg);
+
+    /* Charts row: 3 panels that fit one screen on ≥lg */
+    .charts-row {
+      display: grid;
+      gap: 1rem;
     }
-    header .lead {
-      color: #495057;
+    @media (min-width: 992px) {
+      .charts-row {
+        grid-template-columns: 4fr 6fr 2.5fr; /* Bar | Bubble | Gauge */
+        align-items: stretch;
+      }
     }
-    .card {
-      border-radius: 0.75rem;
-    }
+
+    .card { border-radius: 0.75rem; }
+    .card-header { background: #fff; }
     .chart {
-      min-height: 360px;
+      /* Make each chart fill its card yet not huge */
+      min-height: 320px;
+      height: 42vh;         /* balanced on laptops */
     }
-    /* Make charts responsive without jitter */
-    @media (min-width: 1200px) {
-      #bar.chart { min-height: 440px; }
-      #bubble.chart { min-height: 520px; }
-    }
-    footer {
-      color: #6c757d;
-    }
+    /* Slight tweak for bubble to get more vertical space */
+    #bubble.chart { height: 46vh; }
+
+    /* Compact control bar */
+    .toolbar .form-select { max-width: 280px; }
+
+    /* Make Plotly canvas flush to card body */
+    .card-body { padding: 0.75rem; }
   </style>
 </head>
 
 <body>
-  <!-- Header -->
-  <header class="py-5 text-center bg-white shadow-sm mb-4">
-    <div class="container">
-      <h1 class="display-6 mb-2">Belly Button Biodiversity Dashboard</h1>
-      <p class="lead mb-0">Explore interactive charts built from the dataset.</p>
-    </div>
-  </header>
+  <div class="dashboard container py-3">
 
-  <main class="container pb-5">
-    <div class="row g-4">
-      <!-- Left rail -->
-      <aside class="col-lg-3">
-        <div class="card mb-4">
-          <div class="card-body">
-            <label for="selDataset" class="form-label fw-semibold">Test Subject ID</label>
-            <select id="selDataset" class="form-select" aria-label="Select test subject" onchange="optionChanged(this.value)"></select>
-          </div>
+    <!-- Header / Controls -->
+    <header class="toolbar d-flex flex-wrap align-items-center justify-content-between gap-2">
+      <div>
+        <h1 class="h4 mb-0">Belly Button Biodiversity</h1>
+        <small class="text-muted">All charts, one screen — pick a subject to explore.</small>
+      </div>
+
+      <div class="d-flex align-items-center gap-2">
+        <label for="selDataset" class="form-label mb-0 fw-semibold">Test Subject</label>
+        <select id="selDataset" class="form-select" aria-label="Select test subject" onchange="optionChanged?.(this.value)"></select>
+
+        <!-- Demographics toggle (collapsible) -->
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#demographics" aria-expanded="false">
+          Demographics
+        </button>
+      </div>
+    </header>
+
+    <!-- Charts row -->
+    <main class="charts-row">
+      <!-- Bar -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="h6 mb-0">Top 10 OTUs (Bar)</h2>
         </div>
-
-        <div class="card">
-          <div class="card-header bg-white">
-            <h2 class="h5 mb-0">Demographic Info</h2>
-          </div>
-          <div id="sample-metadata" class="card-body small">
-            <!-- populated by JS -->
-            <div class="text-muted d-flex align-items-center gap-2">
-              <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
-              <span>Loading...</span>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      <!-- Right content -->
-      <section class="col-lg-9">
-        <div class="row g-4">
-          <div class="col-12 col-xl-7">
-            <div class="card h-100">
-              <div class="card-header bg-white">
-                <h2 class="h5 mb-0">Top OTUs (Bar)</h2>
-              </div>
-              <div id="bar" class="card-body chart">
-                <!-- Plotly bar goes here -->
-              </div>
-            </div>
-          </div>
-
-          <div class="col-12 col-xl-5">
-            <div class="card h-100">
-              <div class="card-header bg-white">
-                <h2 class="h5 mb-0">Wash Frequency (Gauge)</h2>
-              </div>
-              <div id="gauge" class="card-body chart">
-                <!-- Plotly gauge goes here -->
-              </div>
-            </div>
-          </div>
-
-          <div class="col-12">
-            <div class="card">
-              <div class="card-header bg-white">
-                <h2 class="h5 mb-0">OTU Distribution (Bubble)</h2>
-              </div>
-              <div id="bubble" class="card-body chart">
-                <!-- Plotly bubble goes here -->
-              </div>
-            </div>
-          </div>
-        </div>
+        <div id="bar" class="card-body chart"></div>
       </section>
-    </div>
-  </main>
 
-  <footer class="border-top py-3">
-    <div class="container small text-center">
+      <!-- Bubble -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="h6 mb-0">OTU Distribution (Bubble)</h2>
+        </div>
+        <div id="bubble" class="card-body chart"></div>
+      </section>
+
+      <!-- Gauge -->
+      <section class="card">
+        <div class="card-header">
+          <h2 class="h6 mb-0">Wash Frequency (Gauge)</h2>
+        </div>
+        <div id="gauge" class="card-body chart"></div>
+      </section>
+    </main>
+
+    <!-- Demographics (collapsible strip) -->
+    <aside class="collapse" id="demographics">
+      <div class="card">
+        <div class="card-header"><h2 class="h6 mb-0">Demographic Info</h2></div>
+        <div id="sample-metadata" class="card-body small">
+          <div class="text-muted d-flex align-items-center gap-2">
+            <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+            <span>Loading…</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <footer class="text-center small text-muted">
       Belly Button Biodiversity • Interactive Dashboard
-    </div>
-  </footer>
+    </footer>
+  </div>
 
   <!-- Your app scripts (defer so they run after DOM is ready) -->
   <script src="./static/js/app.js" defer></script>
   <script src="./static/js/bonus.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" defer></script>
 </body>
 </html>
