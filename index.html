@@ -1,127 +1,196 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Belly Button Biodiversity</title>
+// app.js — Belly Button Biodiversity (refined, responsive, polished)
 
-  <!-- Vendor libs -->
-  <script src="https://d3js.org/d3.v7.min.js" defer></script>
-  <script src="https://cdn.plot.ly/plotly-latest.min.js" defer></script>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"
-        integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+// ---------- Config / Theme ----------
+const PLOT_CONFIG = { responsive: true, displayModeBar: false };
+const THEME = {
+  font: {
+    family: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
+    size: 12,
+    color: "#2d2d2d",
+  },
+  paper_bgcolor: "rgba(0,0,0,0)", // transparent so cards own the background
+  plot_bgcolor: "#ffffff",
+};
 
-  <style>
-    :root { --bbd-bg: #f8f9fa; }
-    body { background: var(--bbd-bg); }
+// Global for dropdown onchange in HTML
+let DATA = null;
+window.optionChanged = (val) => updateCharts(val);
 
-    /* One-screen dashboard feel */
-    .dashboard {
-      min-height: 90vh;
-      display: grid;
-      grid-template-rows: auto 1fr auto;
-      gap: 1rem;
-    }
+// ---------- Load data once ----------
+d3.json("https://static.bc-edx.com/data/dl-1-2/m14/lms/starter/samples.json")
+  .then((response) => {
+    DATA = response;
 
-    /* Charts row: 3 panels that fit one screen on ≥lg */
-    .charts-row {
-      display: grid;
-      gap: 1rem;
-    }
-    @media (min-width: 992px) {
-      .charts-row {
-        grid-template-columns: 4fr 6fr 2.5fr; /* Bar | Bubble | Gauge */
-        align-items: stretch;
-      }
-    }
+    // populate dropdown
+    const dropdown = d3.select("#selDataset");
+    response.names.forEach((id) => dropdown.append("option").text(id).property("value", id));
 
-    .card { border-radius: 0.75rem; }
-    .card-header { background: #fff; }
-    .chart {
-      /* Make each chart fill its card yet not huge */
-      min-height: 320px;
-      height: 42vh;         /* balanced on laptops */
-    }
-    /* Slight tweak for bubble to get more vertical space */
-    #bubble.chart { height: 46vh; }
+    // default selection
+    const initial = response.names[0];
+    updateCharts(initial);
 
-    /* Compact control bar */
-    .toolbar .form-select { max-width: 280px; }
+    // sync dropdown change (in case HTML's inline handler isn't used)
+    dropdown.on("change", function () {
+      updateCharts(dropdown.property("value"));
+    });
 
-    /* Make Plotly canvas flush to card body */
-    .card-body { padding: 0.75rem; }
-  </style>
-</head>
+    // responsive resize
+    window.addEventListener("resize", () => {
+      ["bar", "bubble", "gauge"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) Plotly.Plots.resize(el);
+      });
+    });
+  })
+  .catch((err) => {
+    console.error("Error loading samples.json:", err);
+    d3.select("#sample-metadata").html(
+      `<div class="text-danger">Failed to load data.</div>`
+    );
+  });
 
-<body>
-  <div class="dashboard container py-3">
+// ---------- Main update ----------
+function updateCharts(selectedId) {
+  if (!DATA) return;
 
-    <!-- Header / Controls -->
-    <header class="toolbar d-flex flex-wrap align-items-center justify-content-between gap-2">
-      <div>
-        <h1 class="h4 mb-0">Belly Button Biodiversity</h1>
-        <small class="text-muted">All charts, one screen — pick a subject to explore.</small>
-      </div>
+  const sample = DATA.samples.find((s) => s.id === selectedId);
+  const metadata = DATA.metadata.find((m) => m.id === parseInt(selectedId, 10));
 
-      <div class="d-flex align-items-center gap-2">
-        <label for="selDataset" class="form-label mb-0 fw-semibold">Test Subject</label>
-        <select id="selDataset" class="form-select" aria-label="Select test subject" onchange="optionChanged?.(this.value)"></select>
+  if (!sample || !metadata) return;
 
-        <!-- Demographics toggle (collapsible) -->
-        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#demographics" aria-expanded="false">
-          Demographics
-        </button>
-      </div>
-    </header>
+  renderMetadata(metadata);
+  renderBar(sample);
+  renderBubble(sample);
+  renderGauge(metadata.wfreq);
+}
 
-    <!-- Charts row -->
-    <main class="charts-row">
-      <!-- Bar -->
-      <section class="card">
-        <div class="card-header">
-          <h2 class="h6 mb-0">Top 10 OTUs (Bar)</h2>
-        </div>
-        <div id="bar" class="card-body chart"></div>
-      </section>
+// ---------- Panels / Charts ----------
+function renderMetadata(meta) {
+  const panel = d3.select("#sample-metadata");
+  panel.html("");
 
-      <!-- Bubble -->
-      <section class="card">
-        <div class="card-header">
-          <h2 class="h6 mb-0">OTU Distribution (Bubble)</h2>
-        </div>
-        <div id="bubble" class="card-body chart"></div>
-      </section>
+  const table = panel.append("table").attr("class", "table table-sm mb-0");
+  const tbody = table.append("tbody");
 
-      <!-- Gauge -->
-      <section class="card">
-        <div class="card-header">
-          <h2 class="h6 mb-0">Wash Frequency (Gauge)</h2>
-        </div>
-        <div id="gauge" class="card-body chart"></div>
-      </section>
-    </main>
+  Object.entries(meta).forEach(([k, v]) => {
+    const row = tbody.append("tr");
+    row.append("th").attr("scope", "row").style("width", "45%").text(formatKey(k));
+    row.append("td").text(v ?? "—");
+  });
+}
 
-    <!-- Demographics (collapsible strip) -->
-    <aside class="collapse" id="demographics">
-      <div class="card">
-        <div class="card-header"><h2 class="h6 mb-0">Demographic Info</h2></div>
-        <div id="sample-metadata" class="card-body small">
-          <div class="text-muted d-flex align-items-center gap-2">
-            <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
-            <span>Loading…</span>
-          </div>
-        </div>
-      </div>
-    </aside>
+function renderBar(sample) {
+  // top 10
+  const top10 = sample.sample_values
+    .map((val, i) => ({ val, id: sample.otu_ids[i], label: sample.otu_labels[i] }))
+    .sort((a, b) => b.val - a.val)
+    .slice(0, 10)
+    .reverse();
 
-    <footer class="text-center small text-muted">
-      Belly Button Biodiversity • Interactive Dashboard
-    </footer>
-  </div>
+  const trace = {
+    x: top10.map((d) => d.val),
+    y: top10.map((d) => `OTU ${d.id}`),
+    text: top10.map((d) => d.label),
+    type: "bar",
+    orientation: "h",
+    marker: { color: "#2266cc" },
+    hovertemplate: "%{y}<br>Value: %{x}<extra></extra>",
+  };
 
-  <!-- Your app scripts (defer so they run after DOM is ready) -->
-  <script src="./static/js/app.js" defer></script>
-  <script src="./static/js/bonus.js" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" defer></script>
-</body>
-</html>
+  const layout = {
+    ...THEME,
+    margin: { t: 10, r: 10, b: 40, l: 70 },
+    xaxis: { title: "Sample Values", gridcolor: "#f0f0f0", zeroline: false, automargin: true },
+    yaxis: { title: "OTU IDs", gridcolor: "#ffffff", automargin: true },
+  };
+
+  Plotly.react("bar", [trace], layout, PLOT_CONFIG);
+}
+
+function renderBubble(sample) {
+  const x = sample.otu_ids;
+  const y = sample.sample_values;
+  const labels = sample.otu_labels;
+
+  // scale bubble sizes pleasantly
+  const maxVal = Math.max(...y);
+  const sizeref = maxVal ? maxVal / 70 : 1;
+
+  const trace = {
+    x,
+    y,
+    text: labels,
+    mode: "markers",
+    marker: {
+      size: y,
+      sizemode: "area",
+      sizeref,
+      color: x,
+      colorscale: "Viridis",
+      showscale: true,
+      opacity: 0.85,
+      line: { width: 0.5, color: "rgba(0,0,0,0.15)" },
+      colorbar: { thickness: 12, outlinewidth: 0 },
+    },
+    hovertemplate: "OTU %{x}<br>Value: %{y}<extra></extra>",
+  };
+
+  const layout = {
+    ...THEME,
+    margin: { t: 10, r: 20, b: 50, l: 60 },
+    xaxis: { title: "OTU IDs", gridcolor: "#f0f0f0", zeroline: false, automargin: true },
+    yaxis: { title: "Sample Values", gridcolor: "#f0f0f0", zeroline: false, automargin: true },
+  };
+
+  Plotly.react("bubble", [trace], layout, PLOT_CONFIG);
+}
+
+function renderGauge(wfreqRaw) {
+  const wfreq = Number.isFinite(wfreqRaw) ? wfreqRaw : 0;
+
+  const data = [
+    {
+      type: "indicator",
+      mode: "gauge+number",
+      value: wfreq,
+      number: { font: { size: 20 } },
+      gauge: {
+        axis: { range: [0, 9], tickwidth: 1, tickcolor: "#708090" },
+        bar: { color: "#2266cc" },
+        bgcolor: "#ffffff",
+        borderwidth: 0,
+        steps: [
+          { range: [0, 3], color: "#e8f5e9" },
+          { range: [3, 6], color: "#c8e6c9" },
+          { range: [6, 9], color: "#a5d6a7" },
+        ],
+        threshold: { line: { color: "#d32f2f", width: 3 }, thickness: 0.75, value: wfreq },
+      },
+      domain: { x: [0, 1], y: [0, 1] },
+    },
+  ];
+
+  const layout = {
+    ...THEME,
+    margin: { t: 10, r: 10, b: 20, l: 10 },
+  };
+
+  Plotly.react("gauge", data, layout, PLOT_CONFIG);
+}
+
+// ---------- Helpers ----------
+function formatKey(k) {
+  // convert snake_case / short keys to nicer labels
+  const map = {
+    id: "ID",
+    ethnicity: "Ethnicity",
+    gender: "Gender",
+    age: "Age",
+    location: "Location",
+    bbtype: "BB Type",
+    wfreq: "Wash Freq (wk)",
+  };
+  if (map[k]) return map[k];
+  // generic pretty label
+  return k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
