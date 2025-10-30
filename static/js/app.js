@@ -1,140 +1,206 @@
-// Read data from samples.json
-d3.json("https://static.bc-edx.com/data/dl-1-2/m14/lms/starter/samples.json")
-  .then(function (response) {
-    // Create a dropdown menu with Test Subject IDs
-    const dropdown = d3.select("#selDataset");
-    const ids = response.names || [];
-    ids.forEach(id => dropdown.append("option").text(id).property("value", id));
+// app.js — Belly Button Biodiversity (clean, robust, responsive)
 
-    // Reusable Plotly config/theme
-    const PLOT_CONFIG = { responsive: true, displayModeBar: false };
-    const THEME = {
-      font: { family: "Inter, -apple-system, Segoe UI, Roboto, Arial, sans-serif", size: 12, color: "#2d2d2d" },
-      paper_bgcolor: "rgba(0,0,0,0)",   // transparent (let card/bg show)
-      plot_bgcolor: "#ffffff"
-    };
+const DATA_URL = "./samples.json"; // local file in repo root
 
-    // Function to update charts and display sample metadata based on selected Test Subject ID
-    function updateCharts(selectedId) {
-      const sample   = (response.samples || []).find(s => s.id === selectedId);
-      const metadata = (response.metadata || []).find(m => m.id === parseInt(selectedId, 10));
-      if (!sample || !metadata) return;
+// ---- Plotly config & theme ----
+const PLOT_CONFIG = { responsive: true, displayModeBar: false };
+const THEME = {
+  font: {
+    family: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
+    size: 12,
+    color: "#2d2d2d"
+  },
+  paper_bgcolor: "rgba(0,0,0,0)",
+  plot_bgcolor: "#ffffff"
+};
 
-      // ---- Demographic table ----
-      const metadataPanel = d3.select("#sample-metadata");
-      metadataPanel.html(""); // Clear previous metadata
-      const table = metadataPanel.append("table").attr("class", "table table-sm mb-0");
-      const tbody = table.append("tbody");
-      Object.entries(metadata).forEach(([key, value]) => {
-        const row = tbody.append("tr");
-        row.append("th").attr("scope", "row").style("width","45%").text(prettyKey(key));
-        row.append("td").text(value ?? "—");
-      });
+let DATA = null;
 
-      // ---- BAR: true top 10 (sorted) ----
-      const vals   = sample.sample_values || [];
-      const idsBar = sample.otu_ids || [];
-      const lbls   = sample.otu_labels || [];
+// ---- helpers ----
+function byId(id) { return document.getElementById(id); }
+function prettyKey(k) {
+  const map = {
+    id: "ID", ethnicity: "Ethnicity", gender: "Gender", age: "Age",
+    location: "Location", bbtype: "BB Type", wfreq: "Wash Freq (wk)"
+  };
+  return map[k] || k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
 
-      const top10 = vals.map((v, i) => ({ v, id: idsBar[i], label: lbls[i] }))
-                        .sort((a, b) => b.v - a.v)
-                        .slice(0, 10)
-                        .reverse(); // largest at top in horiz bar
+// ---- renderers ----
+function renderMetadata(meta) {
+  const panel = d3.select("#sample-metadata");
+  if (panel.empty()) return;
+  panel.html("");
 
-      const traceBar = {
-        x: top10.map(d => d.v),
-        y: top10.map(d => `OTU ${d.id}`),
-        text: top10.map(d => d.label),
-        type: "bar",
-        orientation: "h",
-        marker: { color: "#2266cc" },
-        hovertemplate: "%{y}<br>Value: %{x}<extra></extra>"
-      };
-      const layoutBar = {
-        ...THEME,
-        // Title kept minimal (or set to "" if your card already has a title)
-        title: "", // `Top 10 OTUs — ID ${selectedId}`
-        margin: { t: 10, r: 10, b: 40, l: 70 },
-        xaxis: { title: "Sample Values", gridcolor: "#f0f0f0", zeroline: false, automargin: true },
-        yaxis: { title: "OTU IDs",     gridcolor: "#ffffff", zeroline: false, automargin: true }
-      };
-      Plotly.react("bar", [traceBar], layoutBar, PLOT_CONFIG);
+  const table = panel.append("table").attr("class", "table table-sm mb-0");
+  const tbody = table.append("tbody");
 
-      // ---- BUBBLE ----
-      const xAll = sample.otu_ids || [];
-      const yAll = sample.sample_values || [];
-      const tAll = sample.otu_labels || [];
-      const maxVal = yAll.length ? Math.max(...yAll) : 0;
-      const sizeref = maxVal ? maxVal / 70 : 1;
-
-      const traceBubble = {
-        x: xAll, y: yAll, text: tAll, mode: "markers",
-        marker: {
-          size: yAll, sizemode: "area", sizeref,
-          color: xAll, colorscale: "Viridis", showscale: true, opacity: 0.85,
-          line: { width: 0.5, color: "rgba(0,0,0,0.15)" },
-          colorbar: { thickness: 12, outlinewidth: 0 }
-        },
-        hovertemplate: "OTU %{x}<br>Value: %{y}<extra></extra>"
-      };
-      const layoutBubble = {
-        ...THEME,
-        title: "",
-        margin: { t: 10, r: 20, b: 50, l: 60 },
-        xaxis: { title: "OTU IDs",     gridcolor: "#f0f0f0", zeroline: false, automargin: true },
-        yaxis: { title: "Sample Values", gridcolor: "#f0f0f0", zeroline: false, automargin: true }
-      };
-      Plotly.react("bubble", [traceBubble], layoutBubble, PLOT_CONFIG);
-
-      // ---- GAUGE ----
-      const wfreq = Number.isFinite(metadata.wfreq) ? metadata.wfreq : 0;
-      const dataGauge = [{
-        type: "indicator",
-        mode: "gauge+number",
-        value: wfreq,
-        number: { font: { size: 20 } },
-        title: { text: "", font: { size: 16 } },
-        gauge: {
-          axis: { range: [0, 9], tickwidth: 1, tickcolor: "#708090" },
-          bar: { color: "#2266cc" },
-          bgcolor: "#ffffff",
-          borderwidth: 0,
-          steps: [
-            { range: [0, 3], color: "#e8f5e9" },
-            { range: [3, 6], color: "#c8e6c9" },
-            { range: [6, 9], color: "#a5d6a7" }
-          ],
-          threshold: { line: { color: "#d32f2f", width: 3 }, thickness: 0.75, value: wfreq }
-        }
-      }];
-      const layoutGauge = { ...THEME, margin: { t: 10, r: 10, b: 20, l: 10 } };
-      Plotly.react("gauge", dataGauge, layoutGauge, PLOT_CONFIG);
-    }
-
-    // Call updateCharts function with the default Test Subject ID
-    if (ids.length) updateCharts(ids[0]);
-
-    // Event listener for dropdown change
-    dropdown.on("change", function () {
-      const selectedId = dropdown.property("value");
-      updateCharts(selectedId);
-    });
-
-    // Optional: make Plotly recalc on resize (helps one-screen layout)
-    window.addEventListener("resize", () => {
-      ["bar", "bubble", "gauge"].forEach(id => {
-        const el = document.getElementById(id);
-        if (el && window.Plotly && Plotly.Plots) Plotly.Plots.resize(el);
-      });
-    });
-
-    // Helper for nicer metadata keys
-    function prettyKey(k) {
-      const m = { id: "ID", ethnicity: "Ethnicity", gender: "Gender", age: "Age", location: "Location", bbtype: "BB Type", wfreq: "Wash Freq (wk)" };
-      return m[k] || k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-    }
-  })
-  .catch(function (error) {
-    console.log("Error loading the data:", error);
-    d3.select("#sample-metadata").html('<div class="text-danger">Failed to load data.</div>');
+  Object.entries(meta).forEach(([k, v]) => {
+    const row = tbody.append("tr");
+    row.append("th").attr("scope", "row").style("width", "45%").text(prettyKey(k));
+    row.append("td").text(v === null || v === undefined ? "—" : v);
   });
+}
+
+function renderBar(sample) {
+  const el = byId("bar");
+  if (!el) return;
+
+  const values = sample.sample_values || [];
+  const ids    = sample.otu_ids || [];
+  const labels = sample.otu_labels || [];
+  const minLen = Math.min(values.length, ids.length, labels.length);
+
+  const top10 = values.slice(0, minLen)
+    .map((val, i) => ({ val, id: ids[i], label: labels[i] }))
+    .sort((a, b) => b.val - a.val)
+    .slice(0, 10)
+    .reverse();
+
+  const trace = {
+    x: top10.map(d => d.val),
+    y: top10.map(d => `OTU ${d.id}`),
+    text: top10.map(d => d.label),
+    type: "bar",
+    orientation: "h",
+    marker: { color: "#2266cc" },
+    hovertemplate: "%{y}<br>Value: %{x}<extra></extra>"
+  };
+
+  const layout = {
+    ...THEME,
+    title: "",
+    margin: { t: 10, r: 10, b: 40, l: 70 },
+    xaxis: { title: "Sample Values", gridcolor: "#f0f0f0", zeroline: false, automargin: true },
+    yaxis: { title: "OTU IDs", gridcolor: "#ffffff", zeroline: false, automargin: true }
+  };
+
+  Plotly.react(el, [trace], layout, PLOT_CONFIG);
+}
+
+function renderBubble(sample) {
+  const el = byId("bubble");
+  if (!el) return;
+
+  const x = sample.otu_ids || [];
+  const y = sample.sample_values || [];
+  const t = sample.otu_labels || [];
+
+  const maxVal  = y.length ? Math.max(...y) : 0;
+  const sizeref = maxVal ? maxVal / 70 : 1;
+
+  const trace = {
+    x, y, text: t, mode: "markers",
+    marker: {
+      size: y, sizemode: "area", sizeref,
+      color: x, colorscale: "Viridis", showscale: true, opacity: 0.85,
+      line: { width: 0.5, color: "rgba(0,0,0,0.15)" },
+      colorbar: { thickness: 12, outlinewidth: 0 }
+    },
+    hovertemplate: "OTU %{x}<br>Value: %{y}<extra></extra>"
+  };
+
+  const layout = {
+    ...THEME,
+    title: "",
+    margin: { t: 10, r: 20, b: 50, l: 60 },
+    xaxis: { title: "OTU IDs", gridcolor: "#f0f0f0", zeroline: false, automargin: true },
+    yaxis: { title: "Sample Values", gridcolor: "#f0f0f0", zeroline: false, automargin: true }
+  };
+
+  Plotly.react(el, [trace], layout, PLOT_CONFIG);
+}
+
+function renderGauge(wfreqRaw) {
+  const el = byId("gauge");
+  if (!el) return;
+
+  const wfreq = (typeof wfreqRaw === "number" && isFinite(wfreqRaw)) ? wfreqRaw : 0;
+
+  const data = [{
+    type: "indicator",
+    mode: "gauge+number",
+    value: wfreq,
+    number: { font: { size: 20 } },
+    gauge: {
+      axis: { range: [0, 9], tickwidth: 1, tickcolor: "#708090" },
+      bar:  { color: "#2266cc" },
+      bgcolor: "#ffffff",
+      borderwidth: 0,
+      steps: [
+        { range: [0, 3], color: "#e8f5e9" },
+        { range: [3, 6], color: "#c8e6c9" },
+        { range: [6, 9], color: "#a5d6a7" }
+      ],
+      threshold: { line: { color: "#d32f2f", width: 3 }, thickness: 0.75, value: wfreq }
+    },
+    domain: { x: [0, 1], y: [0, 1] }
+  }];
+
+  const layout = { ...THEME, title: "", margin: { t: 10, r: 10, b: 20, l: 10 } };
+
+  Plotly.react(el, data, layout, PLOT_CONFIG);
+}
+
+// ---- main update ----
+function updateCharts(selectedId) {
+  if (!DATA) return;
+
+  const samples = Array.isArray(DATA.samples) ? DATA.samples : [];
+  const metas   = Array.isArray(DATA.metadata) ? DATA.metadata : [];
+
+  const sample   = samples.find(s => s.id === selectedId);
+  const metadata = metas.find(m => m.id === parseInt(selectedId, 10));
+
+  if (!sample || !metadata) return;
+
+  renderMetadata(metadata);
+  renderBar(sample);
+  renderBubble(sample);
+  renderGauge(metadata.wfreq);
+}
+
+// ---- init ----
+(function init() {
+  // verify libs
+  if (typeof d3 === "undefined" || typeof Plotly === "undefined") {
+    console.error("D3 or Plotly not loaded. Check script order.");
+    return;
+  }
+
+  d3.json(DATA_URL)
+    .then(response => {
+      DATA = response;
+
+      // dropdown
+      const dropdownSel = d3.select("#selDataset");
+      const names = Array.isArray(response.names) ? response.names : [];
+      names.forEach(id => dropdownSel.append("option").text(id).property("value", id));
+
+      if (names.length) updateCharts(names[0]);
+
+      // change handler
+      dropdownSel.on("change", function () {
+        const val = dropdownSel.property("value");
+        updateCharts(val);
+      });
+
+      // debounced resize
+      let raf = null;
+      window.addEventListener("resize", () => {
+        if (raf) return;
+        raf = requestAnimationFrame(() => {
+          ["bar", "bubble", "gauge"].forEach(id => {
+            const el = byId(id);
+            if (el && Plotly && Plotly.Plots) Plotly.Plots.resize(el);
+          });
+          raf = null;
+        });
+      });
+    })
+    .catch(err => {
+      console.error("Error loading samples.json:", err);
+      const panel = d3.select("#sample-metadata");
+      if (!panel.empty()) panel.html('<div class="text-danger">Failed to load data.</div>');
+    });
+})();
