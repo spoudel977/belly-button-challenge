@@ -1,42 +1,35 @@
-// app.js — Belly Button Biodiversity (refined, responsive, polished)
+// app.js — Belly Button Biodiversity (stable patch)
 
-// ---------- Config / Theme ----------
 const PLOT_CONFIG = { responsive: true, displayModeBar: false };
 const THEME = {
-  font: {
-    family: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
-    size: 12,
-    color: "#2d2d2d",
-  },
-  paper_bgcolor: "rgba(0,0,0,0)", // transparent so cards own the background
+  font: { family: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", size: 12, color: "#2d2d2d" },
+  paper_bgcolor: "rgba(0,0,0,0)",
   plot_bgcolor: "#ffffff",
 };
 
-// Global for dropdown onchange in HTML
 let DATA = null;
+// Ensure this exists before HTML onchange fires
 window.optionChanged = (val) => updateCharts(val);
 
-// ---------- Load data once ----------
+// Load data
 d3.json("https://static.bc-edx.com/data/dl-1-2/m14/lms/starter/samples.json")
   .then((response) => {
     DATA = response;
 
-    // populate dropdown
     const dropdown = d3.select("#selDataset");
     response.names.forEach((id) => dropdown.append("option").text(id).property("value", id));
 
-    // default selection
     const initial = response.names[0];
     updateCharts(initial);
 
-    // sync dropdown change (in case HTML's inline handler isn't used)
+    // Redundant guard (works even if inline onchange removed)
     dropdown.on("change", function () {
       updateCharts(dropdown.property("value"));
     });
 
-    // responsive resize
+    // Responsive resize
     window.addEventListener("resize", () => {
-      ["bar", "bubble", "gauge"].forEach((id) => {
+      ["bar","bubble","gauge"].forEach(id => {
         const el = document.getElementById(id);
         if (el) Plotly.Plots.resize(el);
       });
@@ -44,18 +37,13 @@ d3.json("https://static.bc-edx.com/data/dl-1-2/m14/lms/starter/samples.json")
   })
   .catch((err) => {
     console.error("Error loading samples.json:", err);
-    d3.select("#sample-metadata").html(
-      `<div class="text-danger">Failed to load data.</div>`
-    );
+    d3.select("#sample-metadata").html('<div class="text-danger">Failed to load data.</div>');
   });
 
-// ---------- Main update ----------
+// Main update
 function updateCharts(selectedId) {
-  if (!DATA) return;
-
-  const sample = DATA.samples.find((s) => s.id === selectedId);
-  const metadata = DATA.metadata.find((m) => m.id === parseInt(selectedId, 10));
-
+  const sample   = (DATA?.samples || []).find(s => s.id === selectedId);
+  const metadata = (DATA?.metadata || []).find(m => m.id === parseInt(selectedId, 10));
   if (!sample || !metadata) return;
 
   renderMetadata(metadata);
@@ -64,7 +52,7 @@ function updateCharts(selectedId) {
   renderGauge(metadata.wfreq);
 }
 
-// ---------- Panels / Charts ----------
+// Panels / Charts
 function renderMetadata(meta) {
   const panel = d3.select("#sample-metadata");
   panel.html("");
@@ -75,12 +63,11 @@ function renderMetadata(meta) {
   Object.entries(meta).forEach(([k, v]) => {
     const row = tbody.append("tr");
     row.append("th").attr("scope", "row").style("width", "45%").text(formatKey(k));
-    row.append("td").text(v ?? "—");
+    row.append("td").text((v ?? v === 0) ? v : "—");
   });
 }
 
 function renderBar(sample) {
-  // top 10
   const top10 = sample.sample_values
     .map((val, i) => ({ val, id: sample.otu_ids[i], label: sample.otu_labels[i] }))
     .sort((a, b) => b.val - a.val)
@@ -88,9 +75,9 @@ function renderBar(sample) {
     .reverse();
 
   const trace = {
-    x: top10.map((d) => d.val),
-    y: top10.map((d) => `OTU ${d.id}`),
-    text: top10.map((d) => d.label),
+    x: top10.map(d => d.val),
+    y: top10.map(d => `OTU ${d.id}`),
+    text: top10.map(d => d.label),
     type: "bar",
     orientation: "h",
     marker: { color: "#2266cc" },
@@ -112,23 +99,14 @@ function renderBubble(sample) {
   const y = sample.sample_values;
   const labels = sample.otu_labels;
 
-  // scale bubble sizes pleasantly
   const maxVal = Math.max(...y);
   const sizeref = maxVal ? maxVal / 70 : 1;
 
   const trace = {
-    x,
-    y,
-    text: labels,
-    mode: "markers",
+    x, y, text: labels, mode: "markers",
     marker: {
-      size: y,
-      sizemode: "area",
-      sizeref,
-      color: x,
-      colorscale: "Viridis",
-      showscale: true,
-      opacity: 0.85,
+      size: y, sizemode: "area", sizeref,
+      color: x, colorscale: "Viridis", showscale: true, opacity: 0.85,
       line: { width: 0.5, color: "rgba(0,0,0,0.15)" },
       colorbar: { thickness: 12, outlinewidth: 0 },
     },
@@ -148,49 +126,35 @@ function renderBubble(sample) {
 function renderGauge(wfreqRaw) {
   const wfreq = Number.isFinite(wfreqRaw) ? wfreqRaw : 0;
 
-  const data = [
-    {
-      type: "indicator",
-      mode: "gauge+number",
-      value: wfreq,
-      number: { font: { size: 20 } },
-      gauge: {
-        axis: { range: [0, 9], tickwidth: 1, tickcolor: "#708090" },
-        bar: { color: "#2266cc" },
-        bgcolor: "#ffffff",
-        borderwidth: 0,
-        steps: [
-          { range: [0, 3], color: "#e8f5e9" },
-          { range: [3, 6], color: "#c8e6c9" },
-          { range: [6, 9], color: "#a5d6a7" },
-        ],
-        threshold: { line: { color: "#d32f2f", width: 3 }, thickness: 0.75, value: wfreq },
-      },
-      domain: { x: [0, 1], y: [0, 1] },
+  const data = [{
+    type: "indicator", mode: "gauge+number", value: wfreq,
+    number: { font: { size: 20 } },
+    gauge: {
+      axis: { range: [0, 9], tickwidth: 1, tickcolor: "#708090" },
+      bar: { color: "#2266cc" },
+      bgcolor: "#ffffff",
+      borderwidth: 0,
+      steps: [
+        { range: [0, 3], color: "#e8f5e9" },
+        { range: [3, 6], color: "#c8e6c9" },
+        { range: [6, 9], color: "#a5d6a7" },
+      ],
+      threshold: { line: { color: "#d32f2f", width: 3 }, thickness: 0.75, value: wfreq },
     },
-  ];
+    domain: { x: [0, 1], y: [0, 1] },
+  }];
 
-  const layout = {
-    ...THEME,
-    margin: { t: 10, r: 10, b: 20, l: 10 },
-  };
+  const layout = { ...THEME, margin: { t: 10, r: 10, b: 20, l: 10 } };
 
   Plotly.react("gauge", data, layout, PLOT_CONFIG);
 }
 
-// ---------- Helpers ----------
+// Helpers
 function formatKey(k) {
-  // convert snake_case / short keys to nicer labels
   const map = {
-    id: "ID",
-    ethnicity: "Ethnicity",
-    gender: "Gender",
-    age: "Age",
-    location: "Location",
-    bbtype: "BB Type",
-    wfreq: "Wash Freq (wk)",
+    id: "ID", ethnicity: "Ethnicity", gender: "Gender", age: "Age",
+    location: "Location", bbtype: "BB Type", wfreq: "Wash Freq (wk)",
   };
   if (map[k]) return map[k];
-  // generic pretty label
   return k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
