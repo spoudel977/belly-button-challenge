@@ -1,5 +1,5 @@
-// app.js — robust loader, 2×2 layout, bar hover-only,
-// bubble zoom-enlarging + readable hovers, gauge, metadata, crosshair guides
+// app.js — 2×2 layout, hover-only bar labels, bubble zoom-enlarging,
+// gauge, metadata, and DRAGGABLE vertical+horizontal cursor bars on Bar & Bubble
 
 const LOCAL_DATA    = "./samples.json";
 const FALLBACK_DATA = "https://static.bc-edx.com/data/dl-1-2/m14/lms/starter/samples.json";
@@ -10,7 +10,10 @@ const PLOT_CONFIG = {
   displaylogo: false,
   modeBarButtonsToRemove: ["toImage","lasso2d","select2d"],
   scrollZoom: true,
-  doubleClick: "reset"
+  doubleClick: "reset",
+  // Important: allow dragging shapes (cursor bars)
+  editable: true,
+  edits: { shapePosition: true } // if ignored by browser, we'll still enforce via relayout
 };
 
 const THEME = {
@@ -54,52 +57,99 @@ function renderMetadata(meta) {
   });
 }
 
-/* ---------- helper: attach crosshair guides to a chart ---------- */
-function attachCrosshair(gd) {
-  if (!gd) return;
+/* ------------------------ CURSOR BARS (DRAGGABLE) ------------------------ */
+// Create two draggable cursor shapes and enforce vertical/horizontal constraints.
+function makeCursorShapesForXY(x, y, opts = {}) {
+  const lineStyle = { color: opts.color || "#888", width: opts.width || 1.2, dash: opts.dash || "dot" };
 
-  const lineStyle = { color: "#888", width: 1, dash: "dot" };
+  // Vertical cursor: spans full plot height
+  const v = {
+    type: "line",
+    xref: "x", yref: "paper",
+    x0: x, x1: x,
+    y0: 0, y1: 1,
+    line: lineStyle
+  };
 
-  gd.on("plotly_hover", (ev) => {
-    if (!ev || !ev.points || !ev.points.length) return;
-    const pt = ev.points[0];
-    const x = pt.x;
-    const y = pt.y;
+  // Horizontal cursor: spans full plot width
+  const h = {
+    type: "line",
+    xref: "paper", yref: "y",
+    x0: 0, x1: 1,
+    y0: y, y1: y,
+    line: lineStyle
+  };
 
-    // Vertical line spans full plot height using paper ref
-    const vertical = {
-      type: "line",
-      xref: "x",
-      yref: "paper",
-      x0: x, x1: x,
-      y0: 0, y1: 1,
-      line: lineStyle
-    };
+  return [v, h];
+}
 
-    // Horizontal line spans full plot width using paper ref
-    // Works with numeric or categorical y
-    const horizontal = {
-      type: "line",
-      xref: "paper",
-      yref: "y",
-      x0: 0, x1: 1,
-      y0: y, y1: y,
-      line: lineStyle
-    };
+// Ensure shapes remain vertical/horizontal after user drags them.
+function clampCursorShapes(gd) {
+  const fullLayout = gd._fullLayout;
+  if (!fullLayout || !fullLayout.shapes) return;
 
-    Plotly.relayout(gd, { shapes: [vertical, horizontal] });
+  const shapes = fullLayout.shapes.map(s => ({...s})); // shallow copy
+  let changed = false;
+
+  shapes.forEach((s, i) => {
+    if (s.type !== "line") return;
+
+    // If vertical cursor (yref paper)
+    if (s.yref === "paper" && s.xref === "x") {
+      // keep vertical and full height
+      const xmid = (Number(s.x0) + Number(s.x1)) / 2;
+      if (s.x0 !== xmid || s.x1 !== xmid || s.y0 !== 0 || s.y1 !== 1) {
+        s.x0 = xmid; s.x1 = xmid; s.y0 = 0; s.y1 = 1;
+        changed = true;
+      }
+    }
+
+    // If horizontal cursor (xref paper)
+    if (s.xref === "paper" && s.yref === "y") {
+      // keep horizontal and full width
+      const ymid = (Number(s.y0) + Number(s.y1)) / 2;
+      if (s.y0 !== ymid || s.y1 !== ymid || s.x0 !== 0 || s.x1 !== 1) {
+        s.y0 = ymid; s.y1 = ymid; s.x0 = 0; s.x1 = 1;
+        changed = true;
+      }
+    }
   });
 
-  gd.on("plotly_unhover", () => {
-    Plotly.relayout(gd, { shapes: [] });
-  });
+  if (changed) {
+    Plotly.relayout(gd, { shapes });
+  }
+}
 
-  gd.on("plotly_doubleclick", () => {
-    Plotly.relayout(gd, { shapes: [] });
+// Add cursors to a graph div, centered at current axis ranges (or a sensible default)
+function addDraggableCursors(gd, opts = {}) {
+  const layout = gd.layout || gd._fullLayout;
+  if (!layout) return;
+
+  // compute midpoints
+  const xr = layout.xaxis?.range || layout.xaxis?.domain || null;
+  const yr = layout.yaxis?.range || layout.yaxis?.domain || null;
+
+  // When ranges are missing (e.g., categorical y), choose safe midpoints
+  const xMid = Array.isArray(xr) && xr.length === 2 ? (Number(xr[0]) + Number(xr[1])) / 2 : 0;
+  const yMid = Array.isArray(yr) && yr.length === 2 ? (Number(yr[0]) + Number(yr[1])) / 2 : 0;
+
+  const newShapes = (layout.shapes || []).slice();
+  const [v, h] = makeCursorShapesForXY(xMid, yMid, opts);
+  newShapes.push(v, h);
+
+  Plotly.relayout(gd, { shapes: newShapes });
+
+  // Keep constraints when user drags the shapes
+  gd.on("plotly_relayout", evt => {
+    // If any shapes were changed, clamp them
+    const keys = Object.keys(evt || {});
+    if (keys.some(k => k.startsWith("shapes["))) {
+      clampCursorShapes(gd);
+    }
   });
 }
 
-/* ---------- BAR (hover-only labels) ---------- */
+/* ------------------------ BAR (hover-only labels) ------------------------ */
 function renderBar(sample) {
   const vals = sample.sample_values || [];
   const ids  = sample.otu_ids || [];
@@ -131,15 +181,17 @@ function renderBar(sample) {
     bargap: 0.28, bargroupgap: 0.1,
     hovermode: "closest",
     dragmode: false,
-    shapes: [] // ensure blank on render
+    shapes: [] // start blank; we'll add cursors below
   };
 
   Plotly.react("bar", [trace], layout, PLOT_CONFIG);
-  attachCrosshair(byId("bar"));
+
+  // Add draggable cursors (category y is fine; horizontal cursor uses yref:'y')
+  addDraggableCursors(byId("bar"), { color: "#666", dash: "dot" });
   resizeNow(["bar"]);
 }
 
-/* ---------- BUBBLE (zoom-enlarge + clean hover + crosshair) ---------- */
+/* ---- BUBBLE (zoom-enlarge + clean hover + draggable cursors) ---- */
 function renderBubble(sample) {
   const gd = byId("bubble");
   const ids = sample.otu_ids || [];
@@ -171,7 +223,7 @@ function renderBubble(sample) {
     yaxis: { title:"Sample Values", gridcolor:"#f2f4f6", zeroline:false, automargin:true },
     hovermode: "closest",
     dragmode: "zoom",
-    shapes: []
+    shapes: [] // start blank; we'll add cursors below
   };
 
   Plotly.react(gd, [trace], layout, PLOT_CONFIG);
@@ -181,15 +233,16 @@ function renderBubble(sample) {
     const x0 = evt["xaxis.range[0]"], x1 = evt["xaxis.range[1]"];
     if (typeof x0 !== "number" || typeof x1 !== "number") return;
     const xr = Math.abs(x1 - x0);
-    const zoomFactor = Math.min(8, Math.max(1, 3500 / xr)); // tune denominator as needed
+    const zoomFactor = Math.min(8, Math.max(1, 3500 / xr)); // tune denominator if needed
     Plotly.restyle(gd, { "marker.size": baseSizes.map(s => s * zoomFactor) });
   });
 
-  attachCrosshair(gd);
+  // Add draggable cursors
+  addDraggableCursors(gd, { color: "#444", dash: "dot" });
   resizeNow(["bubble"]);
 }
 
-/* ---------- GAUGE ---------- */
+/* ------------------------------- GAUGE ------------------------------- */
 function renderGauge(wfreqRaw) {
   const wfreq = (typeof wfreqRaw === "number" && isFinite(wfreqRaw)) ? wfreqRaw : 0;
 
@@ -218,7 +271,7 @@ function renderGauge(wfreqRaw) {
   resizeNow(["gauge"]);
 }
 
-/* ---------- UPDATE ALL ---------- */
+/* ----------------------------- UPDATE ALL ---------------------------- */
 function updateCharts(id) {
   const s = (DATA.samples||[]).find(x=>x.id===id);
   const m = (DATA.metadata||[]).find(x=>x.id===parseInt(id,10));
@@ -230,7 +283,7 @@ function updateCharts(id) {
   resizeNow();
 }
 
-/* ---------- LOADER (local → fallback) ---------- */
+/* --------------------------- LOADER (fallback) ------------------------ */
 async function loadDataWithFallback() {
   const urls = [LOCAL_DATA, FALLBACK_DATA];
   for (const url of urls) {
@@ -247,7 +300,7 @@ async function loadDataWithFallback() {
   return null;
 }
 
-/* ---------- INIT ---------- */
+/* -------------------------------- INIT ------------------------------- */
 (async function init(){
   if (typeof d3 === "undefined" || typeof Plotly === "undefined") {
     console.error("D3 or Plotly not loaded.");
