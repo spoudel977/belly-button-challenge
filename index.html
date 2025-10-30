@@ -1,158 +1,113 @@
-// app.js — Belly Button Biodiversity (stable)
+// app.js — Belly Button Biodiversity (robust & responsive)
 
-// ---------- Plotly config & theme ----------
+// ---- Plotly config & theme ----
 const PLOT_CONFIG = { responsive: true, displayModeBar: false };
 const THEME = {
   font: { family: "Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif", size: 12, color: "#2d2d2d" },
   paper_bgcolor: "rgba(0,0,0,0)",
-  plot_bgcolor: "#ffffff",
+  plot_bgcolor: "#ffffff"
 };
 
 let DATA = null;
 
-// Expose this BEFORE the HTML onchange can fire
-window.optionChanged = function (val) {
-  updateCharts(val);
-};
+// ---- safe element getter ----
+function byId(id) { return document.getElementById(id); }
 
-// ---------- Load data once ----------
-d3.json("https://static.bc-edx.com/data/dl-1-2/m14/lms/starter/samples.json")
-  .then(function (response) {
-    DATA = response;
-
-    // Populate dropdown
-    const dropdown = d3.select("#selDataset");
-    (response.names || []).forEach(function (id) {
-      dropdown.append("option").text(id).property("value", id);
-    });
-
-    // Default selection
-    const initial = (response.names && response.names[0]) ? response.names[0] : null;
-    if (initial) updateCharts(initial);
-
-    // Also wire up programmatically (in case inline handler is removed)
-    dropdown.on("change", function () {
-      updateCharts(dropdown.property("value"));
-    });
-
-    // Responsive resize
-    window.addEventListener("resize", function () {
-      ["bar", "bubble", "gauge"].forEach(function (id) {
-        const el = document.getElementById(id);
-        if (el && window.Plotly && Plotly.Plots) Plotly.Plots.resize(el);
-      });
-    });
-  })
-  .catch(function (err) {
-    console.error("Error loading samples.json:", err);
-    d3.select("#sample-metadata").html('<div class="text-danger">Failed to load data.</div>');
-  });
-
-// ---------- Main update ----------
-function updateCharts(selectedId) {
-  if (!DATA) return;
-
-  const samples = Array.isArray(DATA.samples) ? DATA.samples : [];
-  const metas   = Array.isArray(DATA.metadata) ? DATA.metadata : [];
-
-  const sample   = samples.find(function (s) { return s.id === selectedId; });
-  const metadata = metas.find(function (m) { return m.id === parseInt(selectedId, 10); });
-
-  if (!sample || !metadata) return;
-
-  renderMetadata(metadata);
-  renderBar(sample);
-  renderBubble(sample);
-  renderGauge(metadata.wfreq);
+// ---- pretty key for metadata ----
+function prettyKey(k) {
+  const map = { id: "ID", ethnicity: "Ethnicity", gender: "Gender", age: "Age", location: "Location", bbtype: "BB Type", wfreq: "Wash Freq (wk)" };
+  return map[k] || k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-// ---------- Panels / Charts ----------
+// ---- render panels/charts ----
 function renderMetadata(meta) {
   const panel = d3.select("#sample-metadata");
+  if (panel.empty()) return;
   panel.html("");
 
   const table = panel.append("table").attr("class", "table table-sm mb-0");
   const tbody = table.append("tbody");
 
-  Object.entries(meta).forEach(function ([k, v]) {
+  Object.entries(meta).forEach(([k, v]) => {
     const row = tbody.append("tr");
-    row.append("th").attr("scope", "row").style("width", "45%").text(formatKey(k));
-    // Show 0, false, empty string as-is; only null/undefined becomes "—"
-    const display = (v === null || v === undefined) ? "—" : v;
-    row.append("td").text(display);
+    row.append("th").attr("scope", "row").style("width", "45%").text(prettyKey(k));
+    row.append("td").text(v === null || v === undefined ? "—" : v);
   });
 }
 
 function renderBar(sample) {
+  const el = byId("bar");
+  if (!el) return;
+
   const values = sample.sample_values || [];
   const ids    = sample.otu_ids || [];
   const labels = sample.otu_labels || [];
 
   const top10 = values
-    .map(function (val, i) { return { val: val, id: ids[i], label: labels[i] }; })
-    .sort(function (a, b) { return b.val - a.val; })
+    .map((val, i) => ({ val, id: ids[i], label: labels[i] }))
+    .sort((a, b) => b.val - a.val)
     .slice(0, 10)
     .reverse();
 
   const trace = {
-    x: top10.map(function (d) { return d.val; }),
-    y: top10.map(function (d) { return "OTU " + d.id; }),
-    text: top10.map(function (d) { return d.label; }),
+    x: top10.map(d => d.val),
+    y: top10.map(d => `OTU ${d.id}`),
+    text: top10.map(d => d.label),
     type: "bar",
     orientation: "h",
     marker: { color: "#2266cc" },
-    hovertemplate: "%{y}<br>Value: %{x}<extra></extra>",
+    hovertemplate: "%{y}<br>Value: %{x}<extra></extra>"
   };
 
   const layout = {
     ...THEME,
+    title: "",
     margin: { t: 10, r: 10, b: 40, l: 70 },
     xaxis: { title: "Sample Values", gridcolor: "#f0f0f0", zeroline: false, automargin: true },
-    yaxis: { title: "OTU IDs", gridcolor: "#ffffff", automargin: true },
+    yaxis: { title: "OTU IDs",     gridcolor: "#ffffff", zeroline: false, automargin: true }
   };
 
-  Plotly.react("bar", [trace], layout, PLOT_CONFIG);
+  Plotly.react(el, [trace], layout, PLOT_CONFIG);
 }
 
 function renderBubble(sample) {
+  const el = byId("bubble");
+  if (!el) return;
+
   const x = sample.otu_ids || [];
   const y = sample.sample_values || [];
-  const labels = sample.otu_labels || [];
+  const t = sample.otu_labels || [];
 
-  const maxVal = y.length ? Math.max.apply(null, y) : 0;
+  const maxVal  = y.length ? Math.max(...y) : 0;
   const sizeref = maxVal ? maxVal / 70 : 1;
 
   const trace = {
-    x: x,
-    y: y,
-    text: labels,
-    mode: "markers",
+    x, y, text: t, mode: "markers",
     marker: {
-      size: y,
-      sizemode: "area",
-      sizeref: sizeref,
-      color: x,
-      colorscale: "Viridis",
-      showscale: true,
-      opacity: 0.85,
+      size: y, sizemode: "area", sizeref,
+      color: x, colorscale: "Viridis", showscale: true, opacity: 0.85,
       line: { width: 0.5, color: "rgba(0,0,0,0.15)" },
-      colorbar: { thickness: 12, outlinewidth: 0 },
+      colorbar: { thickness: 12, outlinewidth: 0 }
     },
-    hovertemplate: "OTU %{x}<br>Value: %{y}<extra></extra>",
+    hovertemplate: "OTU %{x}<br>Value: %{y}<extra></extra>"
   };
 
   const layout = {
     ...THEME,
+    title: "",
     margin: { t: 10, r: 20, b: 50, l: 60 },
-    xaxis: { title: "OTU IDs", gridcolor: "#f0f0f0", zeroline: false, automargin: true },
-    yaxis: { title: "Sample Values", gridcolor: "#f0f0f0", zeroline: false, automargin: true },
+    xaxis: { title: "OTU IDs",     gridcolor: "#f0f0f0", zeroline: false, automargin: true },
+    yaxis: { title: "Sample Values", gridcolor: "#f0f0f0", zeroline: false, automargin: true }
   };
 
-  Plotly.react("bubble", [trace], layout, PLOT_CONFIG);
+  Plotly.react(el, [trace], layout, PLOT_CONFIG);
 }
 
 function renderGauge(wfreqRaw) {
-  var wfreq = (typeof wfreqRaw === "number" && isFinite(wfreqRaw)) ? wfreqRaw : 0;
+  const el = byId("gauge");
+  if (!el) return;
+
+  const wfreq = (typeof wfreqRaw === "number" && isFinite(wfreqRaw)) ? wfreqRaw : 0;
 
   const data = [{
     type: "indicator",
@@ -167,29 +122,73 @@ function renderGauge(wfreqRaw) {
       steps: [
         { range: [0, 3], color: "#e8f5e9" },
         { range: [3, 6], color: "#c8e6c9" },
-        { range: [6, 9], color: "#a5d6a7" },
+        { range: [6, 9], color: "#a5d6a7" }
       ],
-      threshold: { line: { color: "#d32f2f", width: 3 }, thickness: 0.75, value: wfreq },
+      threshold: { line: { color: "#d32f2f", width: 3 }, thickness: 0.75, value: wfreq }
     },
-    domain: { x: [0, 1], y: [0, 1] },
+    domain: { x: [0, 1], y: [0, 1] }
   }];
 
-  const layout = { ...THEME, margin: { t: 10, r: 10, b: 20, l: 10 } };
+  const layout = { ...THEME, margin: { t: 10, r: 10, b: 20, l: 10 }, title: "" };
 
-  Plotly.react("gauge", data, layout, PLOT_CONFIG);
+  Plotly.react(el, data, layout, PLOT_CONFIG);
 }
 
-// ---------- Helpers ----------
-function formatKey(k) {
-  const map = {
-    id: "ID",
-    ethnicity: "Ethnicity",
-    gender: "Gender",
-    age: "Age",
-    location: "Location",
-    bbtype: "BB Type",
-    wfreq: "Wash Freq (wk)",
-  };
-  if (map[k]) return map[k];
-  return k.replace(/_/g, " ").replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+// ---- main update ----
+function updateCharts(selectedId) {
+  if (!DATA) return;
+
+  const samples = Array.isArray(DATA.samples) ? DATA.samples : [];
+  const metas   = Array.isArray(DATA.metadata) ? DATA.metadata : [];
+
+  const sample   = samples.find(s => s.id === selectedId);
+  const metadata = metas.find(m => m.id === parseInt(selectedId, 10));
+
+  if (!sample || !metadata) return;
+
+  renderMetadata(metadata);
+  renderBar(sample);
+  renderBubble(sample);
+  renderGauge(metadata.wfreq);
 }
+
+// ---- init ----
+(function init() {
+  // Ensure required libs exist
+  if (typeof d3 === "undefined" || typeof Plotly === "undefined") {
+    console.error("D3 or Plotly not loaded. Check script order.");
+    return;
+  }
+
+  d3.json("https://static.bc-edx.com/data/dl-1-2/m14/lms/starter/samples.json")
+    .then(response => {
+      DATA = response;
+
+      // Populate dropdown
+      const dropdownSel = d3.select("#selDataset");
+      const names = (response && Array.isArray(response.names)) ? response.names : [];
+      names.forEach(id => dropdownSel.append("option").text(id).property("value", id));
+
+      // Default selection
+      if (names.length) updateCharts(names[0]);
+
+      // JS-driven change handler (no inline needed)
+      dropdownSel.on("change", function () {
+        const val = dropdownSel.property("value");
+        updateCharts(val);
+      });
+
+      // Responsive resize
+      window.addEventListener("resize", () => {
+        ["bar", "bubble", "gauge"].forEach(id => {
+          const el = byId(id);
+          if (el && Plotly && Plotly.Plots) Plotly.Plots.resize(el);
+        });
+      });
+    })
+    .catch(err => {
+      console.error("Error loading samples.json:", err);
+      const panel = d3.select("#sample-metadata");
+      if (!panel.empty()) panel.html('<div class="text-danger">Failed to load data.</div>');
+    });
+})();
