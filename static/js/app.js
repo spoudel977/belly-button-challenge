@@ -1,4 +1,4 @@
-// app-2x2.js — robust loader + clean 2×2 layout
+// app.js — robust loader + clean 2×2 layout with post-render resize
 
 const LOCAL_DATA = "./samples.json";
 const FALLBACK_DATA = "https://static.bc-edx.com/data/dl-1-2/m14/lms/starter/samples.json";
@@ -21,6 +21,16 @@ const prettyKey = (k) => ({
 function showDataError(msg) {
   const panel = d3.select("#sample-metadata");
   if (!panel.empty()) panel.html(`<div class="text-danger">${msg}</div>`);
+}
+
+/* After each render, nudge Plotly to resize to the container height */
+function resizeNow(ids = ["bar","bubble","gauge"]) {
+  requestAnimationFrame(() => {
+    ids.forEach(id => {
+      const el = byId(id);
+      if (el && Plotly?.Plots) Plotly.Plots.resize(el);
+    });
+  });
 }
 
 function renderMetadata(meta) {
@@ -52,7 +62,7 @@ function renderBar(sample) {
     text: top10.map(d=>d.t),
     type: "bar",
     orientation: "h",
-    width: 0.55,                 // slimmer bars
+    width: 0.55,
     marker: { color: "rgba(34,102,204,0.92)", line:{ color:"rgba(34,102,204,0.35)", width:1 } },
     hovertemplate: "%{y}<br>Value: %{x}<extra></extra>"
   };
@@ -60,14 +70,15 @@ function renderBar(sample) {
   const layout = {
     ...THEME,
     title: "",
-    margin: { t: 8, r: 12, b: 36, l: 100 },
+    margin: { t: 6, r: 10, b: 30, l: 100 },
     xaxis: { title:"Sample Values", gridcolor:"#f2f4f6", zeroline:false, automargin:true },
     yaxis: { title:"OTU IDs",       gridcolor:"#ffffff", automargin:true },
-    bargap: 0.28,                   // more spacing between bars
+    bargap: 0.28,
     bargroupgap: 0.1
   };
 
   Plotly.react(el, [trace], layout, PLOT_CONFIG);
+  resizeNow(["bar"]);
 }
 
 function renderBubble(sample) {
@@ -82,7 +93,7 @@ function renderBubble(sample) {
     x, y, text: t, mode: "markers",
     marker: {
       size: y, sizemode: "area", sizeref,
-      color: x, colorscale: "Turbo", showscale: true, opacity: 0.9,      // distinct from gauge
+      color: x, colorscale: "Turbo", showscale: true, opacity: 0.9,
       line: { width: 0.5, color: "rgba(0,0,0,0.12)" },
       colorbar: { thickness: 10, outlinewidth: 0 }
     },
@@ -92,12 +103,13 @@ function renderBubble(sample) {
   const layout = {
     ...THEME,
     title: "",
-    margin: { t: 8, r: 28, b: 46, l: 60 },
+    margin: { t: 6, r: 24, b: 36, l: 58 },
     xaxis: { title:"OTU IDs", gridcolor:"#f2f4f6", zeroline:false, automargin:true },
     yaxis: { title:"Sample Values", gridcolor:"#f2f4f6", zeroline:false, automargin:true }
   };
 
   Plotly.react(el, [trace], layout, PLOT_CONFIG);
+  resizeNow(["bubble"]);
 }
 
 function renderGauge(wfreqRaw) {
@@ -111,7 +123,7 @@ function renderGauge(wfreqRaw) {
     number: { font: { size: 18 } },
     gauge: {
       axis: { range: [0,9], tickwidth: 1, tickcolor: "#9aa4b2" },
-      bar: { color: "#00897b" },  // teal, distinct from bar/bubble
+      bar: { color: "#00897b" },               // teal (distinct)
       bgcolor: "#ffffff",
       borderwidth: 0,
       steps: [
@@ -124,8 +136,9 @@ function renderGauge(wfreqRaw) {
     domain: { x:[0,1], y:[0,1] }
   }];
 
-  const layout = { ...THEME, margin: { t:8, r:12, b:8, l:12 }, title:"" };
+  const layout = { ...THEME, margin: { t:6, r:10, b:6, l:10 }, title:"" };
   Plotly.react(el, data, layout, PLOT_CONFIG);
+  resizeNow(["gauge"]);
 }
 
 function updateCharts(id) {
@@ -137,10 +150,10 @@ function updateCharts(id) {
   renderBar(s);
   renderBubble(s);
   renderGauge(m.wfreq);
+  resizeNow(); // final pass
 }
 
 async function loadDataWithFallback() {
-  // Try local, then fallback
   const urls = [LOCAL_DATA, FALLBACK_DATA];
   for (const url of urls) {
     try {
@@ -177,16 +190,10 @@ async function loadDataWithFallback() {
   if (names.length) updateCharts(names[0]);
   sel.on("change", ()=> updateCharts(sel.property("value")));
 
-  // Debounced resize
+  // Debounced window resize
   let raf=null;
   window.addEventListener("resize", ()=>{
     if (raf) return;
-    raf = requestAnimationFrame(()=>{
-      ["bar","bubble","gauge"].forEach(id=>{
-        const el = byId(id);
-        if (el && Plotly?.Plots) Plotly.Plots.resize(el);
-      });
-      raf=null;
-    });
+    raf = requestAnimationFrame(()=>{ resizeNow(); raf=null; });
   });
 })();
