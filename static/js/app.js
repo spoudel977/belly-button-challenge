@@ -1,5 +1,5 @@
 // app.js — robust loader, 2×2 layout, bar hover-only,
-// bubble zoom-enlarging + readable hovers, gauge, metadata, safe resizing
+// bubble zoom-enlarging + readable hovers, gauge, metadata, crosshair guides
 
 const LOCAL_DATA    = "./samples.json";
 const FALLBACK_DATA = "https://static.bc-edx.com/data/dl-1-2/m14/lms/starter/samples.json";
@@ -54,6 +54,51 @@ function renderMetadata(meta) {
   });
 }
 
+/* ---------- helper: attach crosshair guides to a chart ---------- */
+function attachCrosshair(gd) {
+  if (!gd) return;
+
+  const lineStyle = { color: "#888", width: 1, dash: "dot" };
+
+  gd.on("plotly_hover", (ev) => {
+    if (!ev || !ev.points || !ev.points.length) return;
+    const pt = ev.points[0];
+    const x = pt.x;
+    const y = pt.y;
+
+    // Vertical line spans full plot height using paper ref
+    const vertical = {
+      type: "line",
+      xref: "x",
+      yref: "paper",
+      x0: x, x1: x,
+      y0: 0, y1: 1,
+      line: lineStyle
+    };
+
+    // Horizontal line spans full plot width using paper ref
+    // Works with numeric or categorical y
+    const horizontal = {
+      type: "line",
+      xref: "paper",
+      yref: "y",
+      x0: 0, x1: 1,
+      y0: y, y1: y,
+      line: lineStyle
+    };
+
+    Plotly.relayout(gd, { shapes: [vertical, horizontal] });
+  });
+
+  gd.on("plotly_unhover", () => {
+    Plotly.relayout(gd, { shapes: [] });
+  });
+
+  gd.on("plotly_doubleclick", () => {
+    Plotly.relayout(gd, { shapes: [] });
+  });
+}
+
 /* ---------- BAR (hover-only labels) ---------- */
 function renderBar(sample) {
   const vals = sample.sample_values || [];
@@ -83,16 +128,20 @@ function renderBar(sample) {
     margin: { t: 6, r: 10, b: 30, l: 110 },
     xaxis: { title:"Sample Values", gridcolor:"#f2f4f6", zeroline:false, automargin:true },
     yaxis: { title:"OTU IDs",       gridcolor:"#ffffff", automargin:true },
-    bargap: 0.28, bargroupgap: 0.1, dragmode: false
+    bargap: 0.28, bargroupgap: 0.1,
+    hovermode: "closest",
+    dragmode: false,
+    shapes: [] // ensure blank on render
   };
 
   Plotly.react("bar", [trace], layout, PLOT_CONFIG);
+  attachCrosshair(byId("bar"));
   resizeNow(["bar"]);
 }
 
-/* ---------- BUBBLE (zoom-enlarge + clean hover) ---------- */
+/* ---------- BUBBLE (zoom-enlarge + clean hover + crosshair) ---------- */
 function renderBubble(sample) {
-  const el = byId("bubble");
+  const gd = byId("bubble");
   const ids = sample.otu_ids || [];
   const vals = sample.sample_values || [];
   const labels = sample.otu_labels || [];
@@ -121,21 +170,22 @@ function renderBubble(sample) {
     xaxis: { title:"OTU IDs", gridcolor:"#f2f4f6", zeroline:false, automargin:true },
     yaxis: { title:"Sample Values", gridcolor:"#f2f4f6", zeroline:false, automargin:true },
     hovermode: "closest",
-    dragmode: "zoom"
+    dragmode: "zoom",
+    shapes: []
   };
 
-  Plotly.react(el, [trace], layout, PLOT_CONFIG);
+  Plotly.react(gd, [trace], layout, PLOT_CONFIG);
 
   // Enlarge bubbles as you zoom in horizontally; clamp for stability
-  el.on("plotly_relayout", evt => {
+  gd.on("plotly_relayout", evt => {
     const x0 = evt["xaxis.range[0]"], x1 = evt["xaxis.range[1]"];
     if (typeof x0 !== "number" || typeof x1 !== "number") return;
     const xr = Math.abs(x1 - x0);
-    // tune denominator to your dataset width (~3500 default here)
-    const zoomFactor = Math.min(8, Math.max(1, 3500 / xr));
-    Plotly.restyle(el, { "marker.size": baseSizes.map(s => s * zoomFactor) });
+    const zoomFactor = Math.min(8, Math.max(1, 3500 / xr)); // tune denominator as needed
+    Plotly.restyle(gd, { "marker.size": baseSizes.map(s => s * zoomFactor) });
   });
 
+  attachCrosshair(gd);
   resizeNow(["bubble"]);
 }
 
