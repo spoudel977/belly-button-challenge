@@ -1,5 +1,7 @@
-// 2x2 layout version — clean, spaced, distinct colors
-const DATA_URL = "./samples.json";
+// app-2x2.js — robust loader + clean 2×2 layout
+
+const LOCAL_DATA = "./samples.json";
+const FALLBACK_DATA = "https://static.bc-edx.com/data/dl-1-2/m14/lms/starter/samples.json";
 
 const PLOT_CONFIG = { responsive: true, displayModeBar: false };
 const THEME = {
@@ -15,6 +17,11 @@ const prettyKey = (k) => ({
   id:"ID", ethnicity:"Ethnicity", gender:"Gender", age:"Age",
   location:"Location", bbtype:"BB Type", wfreq:"Wash Freq (wk)"
 }[k] || k.replace(/_/g," ").replace(/\b\w/g,(c)=>c.toUpperCase()));
+
+function showDataError(msg) {
+  const panel = d3.select("#sample-metadata");
+  if (!panel.empty()) panel.html(`<div class="text-danger">${msg}</div>`);
+}
 
 function renderMetadata(meta) {
   const panel = d3.select("#sample-metadata");
@@ -45,8 +52,7 @@ function renderBar(sample) {
     text: top10.map(d=>d.t),
     type: "bar",
     orientation: "h",
-    // slimmer bars + more spacing
-    width: 0.55,
+    width: 0.55,                 // slimmer bars
     marker: { color: "rgba(34,102,204,0.92)", line:{ color:"rgba(34,102,204,0.35)", width:1 } },
     hovertemplate: "%{y}<br>Value: %{x}<extra></extra>"
   };
@@ -57,7 +63,7 @@ function renderBar(sample) {
     margin: { t: 8, r: 12, b: 36, l: 100 },
     xaxis: { title:"Sample Values", gridcolor:"#f2f4f6", zeroline:false, automargin:true },
     yaxis: { title:"OTU IDs",       gridcolor:"#ffffff", automargin:true },
-    bargap: 0.28,   // more space between bars
+    bargap: 0.28,                   // more spacing between bars
     bargroupgap: 0.1
   };
 
@@ -76,8 +82,7 @@ function renderBubble(sample) {
     x, y, text: t, mode: "markers",
     marker: {
       size: y, sizemode: "area", sizeref,
-      // distinct palette from gauge & bar
-      color: x, colorscale: "Turbo", showscale: true, opacity: 0.9,
+      color: x, colorscale: "Turbo", showscale: true, opacity: 0.9,      // distinct from gauge
       line: { width: 0.5, color: "rgba(0,0,0,0.12)" },
       colorbar: { thickness: 10, outlinewidth: 0 }
     },
@@ -106,8 +111,7 @@ function renderGauge(wfreqRaw) {
     number: { font: { size: 18 } },
     gauge: {
       axis: { range: [0,9], tickwidth: 1, tickcolor: "#9aa4b2" },
-      // distinct teal from bar/bubble
-      bar: { color: "#00897b" },
+      bar: { color: "#00897b" },  // teal, distinct from bar/bubble
       bgcolor: "#ffffff",
       borderwidth: 0,
       steps: [
@@ -135,30 +139,54 @@ function updateCharts(id) {
   renderGauge(m.wfreq);
 }
 
-(function init(){
-  if (typeof d3==="undefined" || typeof Plotly==="undefined") { console.error("D3/Plotly missing"); return; }
-  d3.json(DATA_URL).then(resp=>{
-    DATA = resp;
-    const sel = d3.select("#selDataset");
-    const names = Array.isArray(resp.names) ? resp.names : [];
-    names.forEach(id => sel.append("option").text(id).property("value", id));
-    if (names.length) updateCharts(names[0]);
-    sel.on("change", ()=> updateCharts(sel.property("value")));
+async function loadDataWithFallback() {
+  // Try local, then fallback
+  const urls = [LOCAL_DATA, FALLBACK_DATA];
+  for (const url of urls) {
+    try {
+      const resp = await d3.json(url);
+      if (resp?.names?.length) {
+        console.log("Loaded data from:", url);
+        return resp;
+      }
+    } catch (e) {
+      console.warn("Data load failed for", url, e);
+    }
+  }
+  return null;
+}
 
-    // debounced resize
-    let raf=null;
-    window.addEventListener("resize", ()=>{
-      if (raf) return;
-      raf = requestAnimationFrame(()=>{
-        ["bar","bubble","gauge"].forEach(id=>{
-          const el = byId(id);
-          if (el && Plotly?.Plots) Plotly.Plots.resize(el);
-        });
-        raf=null;
+(async function init(){
+  if (typeof d3 === "undefined" || typeof Plotly === "undefined") {
+    console.error("D3 or Plotly not loaded. Check script order.");
+    showDataError("Libraries failed to load.");
+    return;
+  }
+
+  DATA = await loadDataWithFallback();
+  if (!DATA) {
+    showDataError("Failed to load dataset (samples.json). Check file path or GitHub Pages URL.");
+    return;
+  }
+
+  // Populate dropdown
+  const sel = d3.select("#selDataset");
+  const names = Array.isArray(DATA.names) ? DATA.names : [];
+  names.forEach(id => sel.append("option").text(id).property("value", id));
+
+  if (names.length) updateCharts(names[0]);
+  sel.on("change", ()=> updateCharts(sel.property("value")));
+
+  // Debounced resize
+  let raf=null;
+  window.addEventListener("resize", ()=>{
+    if (raf) return;
+    raf = requestAnimationFrame(()=>{
+      ["bar","bubble","gauge"].forEach(id=>{
+        const el = byId(id);
+        if (el && Plotly?.Plots) Plotly.Plots.resize(el);
       });
+      raf=null;
     });
-  }).catch(err=>{
-    console.error("Failed to load samples.json:", err);
-    d3.select("#sample-metadata").html('<div class="text-danger">Failed to load data.</div>');
   });
 })();
